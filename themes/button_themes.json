@@ -1,0 +1,336 @@
+{
+    "#1,1":
+    {
+        "colours":
+        {
+            "normal_bg": "#FFFFFF",
+            "hovered_bg" : "#FFFFFF"
+        },
+        "misc":
+        {
+            "shape": "ellipse"
+        }
+    },
+    "#1,2":
+    {
+        "colours":
+        {
+            "normal_bg": "#C1C1C1",
+            "hovered_bg" : "#C1C1C1"
+        },
+        "misc":
+        {
+            "shape": "ellipse"
+        }
+    },
+    "#1,3":
+    {
+        "colours":
+        {
+            "normal_bg": "#EF130B",
+            "hovered_bg": "#EF130B"
+            
+        },
+        "misc":
+        {
+            "shape": "ellipse"
+        }
+    },
+    "#1,4":
+    {
+        "colours":
+        {
+            "normal_bg": "#FF7100",
+            "hovered_bg": "#FF7100"
+            
+        },
+        "misc":
+        {
+            "shape": "ellipse"
+        }
+    },
+    "#1,5":
+    {
+        "colours":
+        {
+            "normal_bg": "#FFE400",
+            "hovered_bg": "#FFE400"
+            
+        },
+        "misc":
+        {
+            "shape": "ellipse"
+        }
+    },
+    "#1,6":
+    {
+        "colours":
+        {
+            "normal_bg": "#00CC00",
+            "hovered_bg": "#00CC00"
+            
+        },
+        "misc":
+        {
+            "shape": "ellipse"
+        }
+    },
+    "#1,7":
+    {
+        "colours":
+        {
+            "normal_bg": "#00FF91",
+            "hovered_bg": "#00FF91"
+            
+        },
+        "misc":
+        {
+            "shape": "ellipse"
+        }
+    },
+    "#1,8":
+    {
+        "colours":
+        {
+            "normal_bg": "#00B2FF",
+            "hovered_bg": "#00B2FF"
+            
+        },
+        "misc":
+        {
+            "shape": "ellipse"
+        }
+    },
+    "#1,9":
+    {
+        "colours":
+        {
+            "normal_bg": "#231FD3",
+            "hovered_bg": "#231FD3"
+            
+        },
+        "misc":
+        {
+            "shape": "ellipse"
+        }
+    },
+    "#1,10":
+    {
+        "colours":
+        {
+            "normal_bg": "#A300BA",
+            "hovered_bg": "#A300BA"
+            
+        },
+        "misc":
+        {
+            "shape": "ellipse"
+        }
+    },
+    "#1,11":
+    {
+        "colours":
+        {
+            "normal_bg": "#DF69A7",
+            "hovered_bg": "#DF69A7"
+            
+        },
+        "misc":
+        {
+            "shape": "ellipse"
+        }
+    },
+    "#1,12":
+    {
+        "colours":
+        {
+            "normal_bg": "#FFAC8E",
+            "hovered_bg": "#FFAC8E"
+            
+        },
+        "misc":
+        {
+            "shape": "ellipse"
+        }
+    },
+    "#1,13":
+    {
+        "colours":
+        {
+            "normal_bg": "#A0522D",
+            "hovered_bg": "#A0522D"
+            
+        },
+        "misc":
+        {
+            "shape": "ellipse"
+        }
+    },
+    "#2,1":
+    {
+        "colours":
+        {
+            "normal_bg": "#000000",
+            "hovered_bg" : "#000000"
+        },
+        "misc":
+        {
+            "shape": "ellipse"
+        }
+    },
+    "#2,2":
+    {
+        "colours":
+        {
+            "normal_bg": "#505050",
+            "hovered_bg" : "#505050"
+        },
+        "misc":
+        {
+            "shape": "ellipse"
+        }
+    },
+    "#2,3":
+    {
+        "colours":
+        {
+            "normal_bg": "#740B07",
+            "hovered_bg": "#740B07"
+            
+        },
+        "misc":
+        {
+            "shape": "ellipse"
+        }
+    },
+    "#2,4":
+    {
+        "colours":
+        {
+            "normal_bg": "#C23800",
+            "hovered_bg": "#C23800"
+            
+        },
+        "misc":
+        {
+            "shape": "ellipse"
+        }
+    },
+    "#2,5":
+    {
+        "colours":
+        {
+            "normal_bg": "#E8A200",
+            "hovered_bg": "#E8A200"
+            
+        },
+        "misc":
+        {
+            "shape": "ellipse"
+        }
+    },
+    "#2,6":
+    {
+        "colours":
+        {
+            "normal_bg": "#004619",
+            "hovered_bg": "#004619"
+            
+        },
+        "misc":
+        {
+            "shape": "ellipse"
+        }
+    },
+    "#2,7":
+    {
+        "colours":
+        {
+            "normal_bg": "#00785D",
+            "hovered_bg": "#00785D"
+            
+        },
+        "misc":
+        {
+            "shape": "ellipse"
+        }
+    },
+    "#2,8":
+    {
+        "colours":
+        {
+            "normal_bg": "#00569E",
+            "hovered_bg": "#00569E"
+            
+        },
+        "misc":
+        {
+            "shape": "ellipse"
+        }
+    },
+    "#2,9":
+    {
+        "colours":
+        {
+            "normal_bg": "#0E0865",
+            "hovered_bg": "#0E0865"
+            
+        },
+        "misc":
+        {
+            "shape": "ellipse"
+        }
+    },
+    "#2,10":
+    {
+        "colours":
+        {
+            "normal_bg": "#550069",
+            "hovered_bg": "#550069"
+            
+        },
+        "misc":
+        {
+            "shape": "ellipse"
+        }
+    },
+    "#2,11":
+    {
+        "colours":
+        {
+            "normal_bg": "#873554",
+            "hovered_bg": "#873554"
+            
+        },
+        "misc":
+        {
+            "shape": "ellipse"
+        }
+    },
+    "#2,12":
+    {
+        "colours":
+        {
+            "normal_bg": "#CC774D",
+            "hovered_bg": "#CC774D"
+            
+        },
+        "misc":
+        {
+            "shape": "ellipse"
+        }
+    },
+    "#2,13":
+    {
+        "colours":
+        {
+            "normal_bg": "#63300D",
+            "hovered_bg": "#63300D"
+            
+        },
+        "misc":
+        {
+            "shape": "ellipse"
+        }
+    }
+}
