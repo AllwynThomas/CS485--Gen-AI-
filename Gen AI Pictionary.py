@@ -28,9 +28,10 @@ brushSizeSteps = 3
 canvasSize = [800, 800]
 playerTurn = True               # 1 = Player; 0 = AI Opponent
 round = 1
+gameOver = False
 
 # Round Timer
-roundTime = 15
+roundTime = 1
 counter, timerText = roundTime, str(roundTime).rjust(3)
 TIMEREVENT = pygame.USEREVENT+3
 pygame.time.set_timer(TIMEREVENT, 1000)
@@ -87,9 +88,11 @@ while True:
         if (event.type == TIMEREVENT):
             counter -= 1
             timerText = str(counter).rjust(3)
+            # Decrementing timer
             if (counter >= 0):
                 timerText = str(counter).rjust(3)
-            else:
+            # Switching between player/ai turns when timer hits 0 and incrementing rounds
+            elif ((counter < 0) and not(round == 3 and not playerTurn)):
                 playerTurn = not playerTurn
                 if (playerTurn == True):
                     timerText = "Player's Turn!"
@@ -104,43 +107,51 @@ while True:
                 pygame.display.flip()
                 time.sleep(3)
                 counter = roundTime + 3
+            # Game finished after round 3
+            # TODO: show points per round, total points for each team, and the winner
+            else:
+                gameOver = True
+                timerText = "Game Over!"
+                screen.blit(timerFont.render(timerText, True, (0, 0, 0)), (32, 48))
+                pygame.display.flip()
         ui_manager.process_events(event)
-        
     ui_manager.update(time_delta)
     
-    x, y= screen.get_size()
-    screen.blit(canvas, [x/2 - canvasSize[0]/2, y/2 - canvasSize[1]/2])
-        
-    # Drawing
-    if (playerTurn and pygame.mouse.get_pressed()[0]):
-        mx, my = pygame.mouse.get_pos()
-        dx = mx - x/2 + canvasSize[0]/2
-        dy = my - y/2 + canvasSize[1]/2
-        pygame.draw.circle(
-            canvas,
-            drawColor,
-            [dx, dy],
-            brushSize,
-        )
-        
-    # Indicator
-    pygame.draw.rect(
-        screen,
-        drawColor,
-        pygame.Rect(235, 40, 50, 50),
-        border_radius=5
-    )
-    pygame.draw.rect(
-        screen,
-        "#000000",
-        pygame.Rect(235, 40, 50, 50),
-        width=2,
-        border_radius=5
-    )
+    if (not gameOver):
     
+        x, y= screen.get_size()
+        screen.blit(canvas, [x/2 - canvasSize[0]/2, y/2 - canvasSize[1]/2])
+            
+        # Drawing
+        if (playerTurn and pygame.mouse.get_pressed()[0]):
+            mx, my = pygame.mouse.get_pos()
+            dx = mx - x/2 + canvasSize[0]/2
+            dy = my - y/2 + canvasSize[1]/2
+            pygame.draw.circle(
+                canvas,
+                drawColor,
+                [dx, dy],
+                brushSize,
+            )
+            
+        # Indicator
+        pygame.draw.rect(
+            screen,
+            drawColor,
+            pygame.Rect(235, 40, 50, 50),
+            border_radius=5
+        )
+        pygame.draw.rect(
+            screen,
+            "#000000",
+            pygame.Rect(235, 40, 50, 50),
+            width=2,
+            border_radius=5
+        )
+        ui_manager.draw_ui(screen)
+        
     # Timer
     screen.blit(timerFont.render(timerText, True, (0, 0, 0)), (32, 48))
-    
-    ui_manager.draw_ui(screen)    
+        
     pygame.display.flip()
     fpsClock.tick(fps)
