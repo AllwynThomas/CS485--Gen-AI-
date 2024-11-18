@@ -1,10 +1,10 @@
 import sys
 import pygame
 import pygame_gui
+import pygame_gui.elements.ui_button
 import ctypes
 import time
-
-import pygame_gui.elements.ui_button
+import pandas as pd
 
 # Sharper Window
 ctypes.windll.shcore.SetProcessDpiAwareness(True)
@@ -17,6 +17,17 @@ width, height = 640, 480
 screen = pygame.display.set_mode((width, height), pygame.RESIZABLE)
 font = pygame.font.SysFont('Arial', 20)
 ui_manager = pygame_gui.UIManager((1080, 1080), "themes/button_themes.json")
+
+# Data Preprocessing
+categories = pd.read_csv("data/categories.txt", sep="/n", header=None, names=["Categories"], engine="python") 
+
+# Picking Categories
+random_categories = categories.sample(n=12)['Categories'].tolist()
+player_categories = {}
+ai_categories = {}
+for round in range(1, 4):
+    ai_categories[round] = random_categories[round-1]
+    player_categories[round] = (random_categories[3*round], random_categories[3*round+1], random_categories[3*round+2])
 
 # Variables
 buttons = {}
