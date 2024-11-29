@@ -15,7 +15,7 @@ fps = 0
 fpsClock = pygame.time.Clock()
 width, height = 640, 480
 screen = pygame.display.set_mode((width, height), pygame.RESIZABLE)
-font = pygame.font.SysFont('Arial', 20)
+font = pygame.font.SysFont('Helvetica', 30)
 ui_manager = pygame_gui.UIManager((1080, 1080), "themes/button_themes.json")
 
 # Data Preprocessing
@@ -35,14 +35,13 @@ colorMappings = {"#1,1": "#FFFFFF", "#1,2": "#C1C1C1", "#1,3": "#EF130B", "#1,4"
                  "#2,1": "#000000", "#2,2": "#505050", "#2,3": "#740B07", "#2,4": "#C23800", "#2,5": "#E8A200", "#2,6": "#004619", "#2,7": "#00785D", "#2,8": "#00569E", "#2,9": "#0E0865", "#2,10": "#550069", "#2,11": "#873554", "#2,12": "#CC774D", "#2,13": "#63300D"}
 drawColor = [0,0,0]
 brushSize = 10
-brushSizeSteps = 3
 canvasSize = [800, 800]
 playerTurn = True               # 1 = Player; 0 = AI Opponent
 round = 1
 gameOver = False
 
 # Round Timer
-roundTime = 1
+roundTime = 60
 counter, timerText = roundTime, str(roundTime).rjust(3)
 TIMEREVENT = pygame.USEREVENT+3
 pygame.time.set_timer(TIMEREVENT, 1000)
@@ -51,6 +50,18 @@ timerFont = pygame.font.SysFont('Courier New', 30)
 # Canvas Setup
 canvas = pygame.Surface(canvasSize)
 canvas.fill((255, 255, 255))
+
+# Text Input
+textInputRect = pygame.Rect(1210, 798, 270, 40)
+enteredTextRect = pygame.Rect(1210, 798-40, 270, 40)
+userText = "Type your guess here..."
+enteredText = ""
+inputActive = pygame.Color('white')
+inputPassive = pygame.Color('#B8FF9B')
+inputColor = inputPassive
+inputTextColor = pygame.Color('darkgray')
+isTextInputActive = False
+enteredTextColor = pygame.Color('lightskyblue')
 
 # Color Swatches (Buttons)                                                       
 button_row_width = 50
@@ -74,12 +85,6 @@ for i in range(1, 3):
 def changeColor(color):
     global drawColor
     drawColor = color
-    
-def changeBrushSize(dir):
-    if (dir == 'greater'):
-        brushSize += brushSizeSteps
-    else:
-        brushSize -= brushSizeSteps
         
 def save(name, playerType):
     pygame.image.save(canvas, f"images/{playerType}/{time.strftime('%Y-%m-%d_%H-%M-%S_', time.localtime())}{name}.png")
@@ -96,6 +101,19 @@ while True:
             buttonID = str(event.ui_element.object_ids)[2:-2]
             if (buttonID in colorMappings):
                 changeColor(colorMappings[buttonID])
+        if (event.type == pygame.MOUSEBUTTONDOWN):
+            if (textInputRect.collidepoint(event.pos)):
+                isTextInputActive = True
+            else:
+                isTextInputActive = False
+        if (event.type == pygame.KEYDOWN and isTextInputActive):
+            if (event.key == pygame.K_BACKSPACE):
+                userText = userText[:-1]
+            elif (event.key == pygame.K_RETURN):
+                enteredText = userText
+                userText = ""
+            else:
+                userText += event.unicode
         if (event.type == TIMEREVENT):
             counter -= 1
             timerText = str(counter).rjust(3)
@@ -144,8 +162,30 @@ while True:
                 [dx, dy],
                 brushSize,
             )
+         
+        # Text Input
+        if (isTextInputActive):
+            inputColor = inputActive
+            inputTextColor = pygame.Color('black')
+            if (not userText or userText == "Type your guess here..."):
+                userText = ""
+        else:
+            inputColor = inputPassive
+            if (not userText):
+                userText = "Type your guess here..."
+                inputTextColor = pygame.Color('darkgray')
+        pygame.draw.rect(screen, inputColor, textInputRect)
+        textSurface = font.render(userText, True, inputTextColor)
+        screen.blit(textSurface, (textInputRect.x+5, textInputRect.y))
+        textInputRect.w = max(270, textSurface.get_width()+10)
+        
+        # Entered Text
+        pygame.draw.rect(screen, enteredTextColor, enteredTextRect)
+        enteredTextSurface = font.render(enteredText, True, (0, 0, 0))
+        screen.blit(enteredTextSurface, (enteredTextRect.x+5, enteredTextRect.y))
+        enteredTextRect.w = max(270, enteredTextSurface.get_width()+10) 
             
-        # Indicator
+        # Color Indicator
         pygame.draw.rect(
             screen,
             drawColor,
