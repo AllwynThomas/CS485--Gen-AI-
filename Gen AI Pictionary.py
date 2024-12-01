@@ -1,14 +1,96 @@
 import sys
+import os
 import pygame
 import pygame_gui
 import pygame_gui.elements.ui_button
 import ctypes
 import time
+import random
+import quickdraw
 import pandas as pd
+import numpy as np
+import tensorflow as tf
+from tensorflow import keras
+from tensorflow.keras import layers
+from tensorflow.keras.models import Sequential
+from PIL import Image
+from pathlib import Path
+from concurrent.futures import ThreadPoolExecutor
 
 # Sharper Window
 ctypes.windll.shcore.SetProcessDpiAwareness(True)
 
+# Getting QuickDraw Images from API
+image_size = (28, 28)
+
+def generate_class_images(name, max_drawings, recognized):
+    directory = Path("data/quickdraw_images/" + name)
+    if directory.exists():
+        return
+    
+    directory.mkdir(parents=True)
+    try:
+        images = quickdraw.QuickDrawDataGroup(name, max_drawings=max_drawings, recognized=recognized, cache_dir="data/.quickdrawcache")
+        for img in images.drawings:
+            filename = directory.as_posix() + "/" + str(img.key_id) + ".png"
+            img.get_image(stroke_width=3).resize(image_size).save(filename)
+    except:
+        return
+
+def download_images_parallel(labels, max_drawings, recognized):
+    # Use the number of CPUs or threads available
+    max_threads = os.cpu_count() or 4  # Fallback to 4 if os.cpu_count() returns None
+    with ThreadPoolExecutor(max_workers=max_threads) as executor:
+        futures = [
+            executor.submit(generate_class_images, label, max_drawings, recognized)
+            for label in labels
+        ]
+        for future in futures:
+            future.result()
+
+if __name__ == "__main__":
+    categories = quickdraw.QuickDrawData().drawing_names
+    #start = time.time()
+    download_images_parallel(categories, max_drawings=1000, recognized=True)
+    #end = time.time()
+    #print(f"Image Download Time: {(end-start)//60}m {(end-start)%60}s")
+
+# Picking Categories
+random_categories = random.sample(categories, 12)
+player_categories = {}
+ai_categories = {}
+for round in range(1, 4):
+    ai_categories[round] = random_categories[round-1]
+    player_categories[round] = (random_categories[3*round], random_categories[3*round+1], random_categories[3*round+2])
+#print(player_categories, ai_categories)
+
+# Splitting Dataset into Train/Validate Sets
+dataset_dir = Path("data/quickdraw_images")
+train_ds = tf.keras.utils.image_dataset_from_directory(
+    dataset_dir,
+    validation_split=0.2,
+    subset="training",
+    seed=42,
+    color_mode="grayscale",
+    image_size=image_size,
+    batch_size=32
+)
+
+val_ds = tf.keras.utils.image_dataset_from_directory(
+    dataset_dir,
+    validation_split=0.2,
+    subset="validation",
+    seed=42,
+    color_mode="grayscale",
+    image_size=image_size,
+    batch_size=32
+)
+
+AUTOTUNE = tf.data.AUTOTUNE
+train_ds = train_ds.cache().shuffle(1000).prefetch(buffer_size=AUTOTUNE)
+val_ds = val_ds.cache().prefetch(buffer_size=AUTOTUNE)
+
+exit()
 # Pygame Config
 pygame.init()
 fps = 0
@@ -17,17 +99,6 @@ width, height = 640, 480
 screen = pygame.display.set_mode((width, height), pygame.RESIZABLE)
 font = pygame.font.SysFont('Helvetica', 30)
 ui_manager = pygame_gui.UIManager((1080, 1080), "themes/button_themes.json")
-
-# Data Preprocessing
-categories = pd.read_csv("data/categories.txt", sep="/n", header=None, names=["Categories"], engine="python") 
-
-# Picking Categories
-random_categories = categories.sample(n=12)['Categories'].tolist()
-player_categories = {}
-ai_categories = {}
-for round in range(1, 4):
-    ai_categories[round] = random_categories[round-1]
-    player_categories[round] = (random_categories[3*round], random_categories[3*round+1], random_categories[3*round+2])
 
 # Variables
 buttons = {}
