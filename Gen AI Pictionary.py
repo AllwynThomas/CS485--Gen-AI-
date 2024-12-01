@@ -4,7 +4,7 @@ import pygame
 import pygame_gui
 import pygame_gui.elements.ui_button
 import ctypes
-import time
+import time, datetime
 import random
 import quickdraw
 import pandas as pd
@@ -16,9 +16,8 @@ from tensorflow.keras.models import Sequential
 from PIL import Image
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
-
-# Sharper Window
-ctypes.windll.shcore.SetProcessDpiAwareness(True)
+from tensorflow.python.client import device_lib
+print(device_lib.list_local_devices())
 
 # Getting QuickDraw Images from API
 image_size = (28, 28)
@@ -90,8 +89,62 @@ AUTOTUNE = tf.data.AUTOTUNE
 train_ds = train_ds.cache().shuffle(1000).prefetch(buffer_size=AUTOTUNE)
 val_ds = val_ds.cache().prefetch(buffer_size=AUTOTUNE)
 
+# Building CNN Model
+n_classes = 345
+input_shape = (28, 28, 1)
+
+model = Sequential([
+    layers.InputLayer(shape=input_shape),
+    layers.Rescaling(1./255),
+    layers.BatchNormalization(),
+
+    layers.Conv2D(6, kernel_size=3, padding="same", activation="relu"),
+    layers.Conv2D(8, kernel_size=3, padding="same", activation="relu"),
+    layers.Conv2D(10, kernel_size=3, padding="same", activation="relu"),
+    layers.BatchNormalization(),
+    layers.MaxPooling2D(pool_size=2),
+    
+    layers.Flatten(),
+    
+    layers.Dense(700, activation="relu"),
+    layers.BatchNormalization(),
+    layers.Dropout(0.2),
+    
+    layers.Dense(500, activation="relu"),
+    layers.BatchNormalization(),
+    layers.Dropout(0.2),
+    
+    layers.Dense(400, activation="relu"),
+    layers.Dropout(0.2),
+
+    layers.Dense(n_classes, activation="softmax")
+])
+
+model.compile(optimizer='adam',
+              loss=tf.keras.losses.SparseCategoricalCrossentropy(),
+              metrics=['accuracy'])
+
+model.summary()
+
+# Training CNN Model
+epochs = 14
+
+logdir = os.path.join("models/CNN/logs", datetime.datetime.now().strftime("%Y%m%d-%H%M%S"))
+tensorboard_callback = tf.keras.callbacks.TensorBoard(logdir, histogram_freq=1)
+
+model.fit(
+    train_ds,
+    validation_data=val_ds,
+    epochs=epochs,
+    verbose=1,
+    callbacks=[tensorboard_callback]
+)
+
+model.export('./models/CNN/base_model')
+
 exit()
 # Pygame Config
+ctypes.windll.shcore.SetProcessDpiAwareness(True)                   # Sharper Window
 pygame.init()
 fps = 0
 fpsClock = pygame.time.Clock()
