@@ -10,14 +10,18 @@ import quickdraw
 import pandas as pd
 import numpy as np
 import tensorflow as tf
+tf.config.set_visible_devices([], 'GPU')                    # Does not use GPU for processing
 from tensorflow import keras
 from tensorflow.keras import layers
 from tensorflow.keras.models import Sequential
 from PIL import Image
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
-from tensorflow.python.client import device_lib
-print(device_lib.list_local_devices())
+
+# Checking if TFlite model exists
+modelExists = False
+if Path("models/CNN/tflite_model.tflite").exists():
+    modelExists = True
 
 # Getting QuickDraw Images from API
 image_size = (28, 28)
@@ -50,7 +54,8 @@ def download_images_parallel(labels, max_drawings, recognized):
 if __name__ == "__main__":
     categories = quickdraw.QuickDrawData().drawing_names
     #start = time.time()
-    download_images_parallel(categories, max_drawings=1000, recognized=True)
+    if (not modelExists):
+        download_images_parallel(categories, max_drawings=1000, recognized=True)
     #end = time.time()
     #print(f"Image Download Time: {(end-start)//60}m {(end-start)%60}s")
 
@@ -63,84 +68,111 @@ for round in range(1, 4):
     player_categories[round] = (random_categories[3*round], random_categories[3*round+1], random_categories[3*round+2])
 #print(player_categories, ai_categories)
 
-# Splitting Dataset into Train/Validate Sets
-dataset_dir = Path("data/quickdraw_images")
-train_ds = tf.keras.utils.image_dataset_from_directory(
-    dataset_dir,
-    validation_split=0.2,
-    subset="training",
-    seed=42,
-    color_mode="grayscale",
-    image_size=image_size,
-    batch_size=32
-)
+if (not modelExists):
+    # Splitting Dataset into Train/Validate Sets    
+    dataset_dir = Path("data/quickdraw_images")
+    train_ds = tf.keras.utils.image_dataset_from_directory(
+        dataset_dir,
+        validation_split=0.2,
+        subset="training",
+        seed=42,
+        color_mode="grayscale",
+        image_size=image_size,
+        batch_size=32
+    )
 
-val_ds = tf.keras.utils.image_dataset_from_directory(
-    dataset_dir,
-    validation_split=0.2,
-    subset="validation",
-    seed=42,
-    color_mode="grayscale",
-    image_size=image_size,
-    batch_size=32
-)
+    val_ds = tf.keras.utils.image_dataset_from_directory(
+        dataset_dir,
+        validation_split=0.2,
+        subset="validation",
+        seed=42,
+        color_mode="grayscale",
+        image_size=image_size,
+        batch_size=32
+    )
 
-AUTOTUNE = tf.data.AUTOTUNE
-train_ds = train_ds.cache().shuffle(1000).prefetch(buffer_size=AUTOTUNE)
-val_ds = val_ds.cache().prefetch(buffer_size=AUTOTUNE)
+    AUTOTUNE = tf.data.AUTOTUNE
+    train_ds = train_ds.cache().shuffle(5000).prefetch(buffer_size=AUTOTUNE)
+    val_ds = val_ds.cache().prefetch(buffer_size=AUTOTUNE)
 
-# Building CNN Model
-n_classes = 345
-input_shape = (28, 28, 1)
+    # Building CNN Model
+    n_classes = 345
+    input_shape = (28, 28, 1)
 
-model = Sequential([
-    layers.InputLayer(shape=input_shape),
-    layers.Rescaling(1./255),
-    layers.BatchNormalization(),
+    model = Sequential([
+        layers.InputLayer(input_shape=input_shape),
+        layers.Rescaling(1./255),
+        layers.BatchNormalization(),
 
-    layers.Conv2D(6, kernel_size=3, padding="same", activation="relu"),
-    layers.Conv2D(8, kernel_size=3, padding="same", activation="relu"),
-    layers.Conv2D(10, kernel_size=3, padding="same", activation="relu"),
-    layers.BatchNormalization(),
-    layers.MaxPooling2D(pool_size=2),
-    
-    layers.Flatten(),
-    
-    layers.Dense(700, activation="relu"),
-    layers.BatchNormalization(),
-    layers.Dropout(0.2),
-    
-    layers.Dense(500, activation="relu"),
-    layers.BatchNormalization(),
-    layers.Dropout(0.2),
-    
-    layers.Dense(400, activation="relu"),
-    layers.Dropout(0.2),
+        layers.Conv2D(6, kernel_size=3, padding="same", activation="relu"),
+        layers.Conv2D(8, kernel_size=3, padding="same", activation="relu"),
+        layers.Conv2D(10, kernel_size=3, padding="same", activation="relu"),
+        layers.BatchNormalization(),
+        layers.MaxPooling2D(pool_size=2),
+        
+        layers.Flatten(),
+        
+        layers.Dense(700, activation="relu"),
+        layers.BatchNormalization(),
+        layers.Dropout(0.2),
+        
+        layers.Dense(500, activation="relu"),
+        layers.BatchNormalization(),
+        layers.Dropout(0.2),
+        
+        layers.Dense(400, activation="relu"),
+        layers.Dropout(0.2),
 
-    layers.Dense(n_classes, activation="softmax")
-])
+        layers.Dense(n_classes, activation="softmax")
+    ])
 
-model.compile(optimizer='adam',
-              loss=tf.keras.losses.SparseCategoricalCrossentropy(),
-              metrics=['accuracy'])
+    model.compile(optimizer='adam',
+                loss=tf.keras.losses.SparseCategoricalCrossentropy(),
+                metrics=['accuracy'])
 
-model.summary()
+    model.summary()
 
-# Training CNN Model
-epochs = 14
+    # Training and Saving CNN Base Model
+    epochs = 10
 
-logdir = os.path.join("models/CNN/logs", datetime.datetime.now().strftime("%Y%m%d-%H%M%S"))
-tensorboard_callback = tf.keras.callbacks.TensorBoard(logdir, histogram_freq=1)
+    #logdir = os.path.join("models/CNN/logs", datetime.datetime.now().strftime("%Y%m%d-%H%M%S"))
+    #tensorboard_callback = tf.keras.callbacks.TensorBoard(logdir, histogram_freq=1)
 
-model.fit(
-    train_ds,
-    validation_data=val_ds,
-    epochs=epochs,
-    verbose=1,
-    callbacks=[tensorboard_callback]
-)
+    model.fit(
+        train_ds,
+        validation_data=val_ds,
+        epochs=epochs,
+        verbose=1,
+        #callbacks=[tensorboard_callback]
+    )
 
-model.export('./models/CNN/base_model')
+    # Converting the Model
+    model.export('./models/CNN/base_model')
+    converter = tf.lite.TFLiteConverter.from_saved_model("models/CNN/base_model")
+    tflite_model = converter.convert()
+
+    # Saving the Tflite Model.
+    with open('models/CNN/tflite_model.tflite', 'wb') as f:
+        f.write(tflite_model)
+
+# Load TFLite model and allocate tensors.
+interpreter = tf.lite.Interpreter(model_path="models/CNN/tflite_model.tflite")
+interpreter.allocate_tensors()
+
+# Get input and output tensors.
+input_details = interpreter.get_input_details()
+output_details = interpreter.get_output_details()
+
+# Test model on random input data.
+input_shape = input_details[0]['shape']
+input_data = np.array(np.random.random_sample(input_shape), dtype=np.float32)
+interpreter.set_tensor(input_details[0]['index'], input_data)
+
+interpreter.invoke()
+
+output_data = interpreter.get_tensor(output_details[0]['index'])
+#print(tf.size(output_data), output_data, output_data[0])
+print(f"Predicted Image: {categories[tf.argmax(output_data[0])]} ({np.max(output_data[0])*100:.2f}%)")
 
 exit()
 # Pygame Config
