@@ -2,3 +2,4 @@ data/.quickdrawcache/
 data/quickdraw_images/
 models/CNN/logs/
 tf/
+images/temp

@@ -63,10 +63,12 @@ if __name__ == "__main__":
 random_categories = random.sample(categories, 12)
 player_categories = {}
 ai_categories = {}
-for round in range(1, 4):
-    ai_categories[round] = random_categories[round-1]
-    player_categories[round] = (random_categories[3*round], random_categories[3*round+1], random_categories[3*round+2])
+ai_guesses = {}
+for r in range(1, 4):
+    ai_categories[r] = random_categories[r-1]
+    player_categories[r] = (random_categories[3*r], random_categories[3*r+1], random_categories[3*r+2])
 #print(player_categories, ai_categories)
+
 
 if (not modelExists):
     # Splitting Dataset into Train/Validate Sets    
@@ -155,26 +157,45 @@ if (not modelExists):
     with open('models/CNN/tflite_model.tflite', 'wb') as f:
         f.write(tflite_model)
 
-# Load TFLite model and allocate tensors.
+# Load TFLite model and allocate tensors
 interpreter = tf.lite.Interpreter(model_path="models/CNN/tflite_model.tflite")
 interpreter.allocate_tensors()
 
-# Get input and output tensors.
+# Get input and output tensors
 input_details = interpreter.get_input_details()
 output_details = interpreter.get_output_details()
 
-# Test model on random input data.
-input_shape = input_details[0]['shape']
-input_data = np.array(np.random.random_sample(input_shape), dtype=np.float32)
-interpreter.set_tensor(input_details[0]['index'], input_data)
+# Function for CNN to guess player's drawing
+def CNNguess(img_name):
+    global ai_guesses
+    # Preprocessing player's drawing
+    player_img = Image.open(f"images/temp/player_temp/{img_name}.png")
+    gray_player_img = player_img.convert('L')
+    scaled_player_img = gray_player_img.resize(image_size)
+    scaled_player_img.save(f"images/temp/test/{img_name}.png")
 
-interpreter.invoke()
+    input_data = tf.convert_to_tensor(np.array(scaled_player_img, dtype=np.float32))
+    input_data = np.expand_dims(input_data, axis=(0, -1))
+    interpreter.set_tensor(input_details[0]['index'], input_data)
+    interpreter.invoke()
 
-output_data = interpreter.get_tensor(output_details[0]['index'])
-#print(tf.size(output_data), output_data, output_data[0])
-print(f"Predicted Image: {categories[tf.argmax(output_data[0])]} ({np.max(output_data[0])*100:.2f}%)")
+    # Finding top 3 possible categories based on 3 highest probabilities
+    output_data = interpreter.get_tensor(output_details[0]['index'])[0]
+    top3_categories = np.argpartition(output_data, -3)[-3:]
+    top3_categories_sorted = top3_categories[np.argsort(output_data[top3_categories])[::-1]]
+    for i in top3_categories_sorted:
+        ai_guesses[categories[i]] = round(output_data[i]*100, 2)
+    print(f"\nPredicted Categories: {ai_guesses}\n")
+    
+    # Deleting temp drawing
+    current_dir = os.getcwd()
+    file_name = f"images/temp/player_temp/{img_name}.png"
+    file_path = os.path.join(current_dir, file_name)
+    try:
+        os.remove(file_path)
+    except Exception:
+        return
 
-exit()
 # Pygame Config
 ctypes.windll.shcore.SetProcessDpiAwareness(True)                   # Sharper Window
 pygame.init()
@@ -190,10 +211,10 @@ buttons = {}
 colorMappings = {"#1,1": "#FFFFFF", "#1,2": "#C1C1C1", "#1,3": "#EF130B", "#1,4": "#FF7100", "#1,5": "#FFE400", "#1,6": "#00CC00", "#1,7": "#00FF91", "#1,8": "#00B2FF", "#1,9": "#231FD3", "#1,10": "#A300BA", "#1,11": "#DF69A7", "#1,12": "#FFAC8E", "#1,13": "#A0522D",
                  "#2,1": "#000000", "#2,2": "#505050", "#2,3": "#740B07", "#2,4": "#C23800", "#2,5": "#E8A200", "#2,6": "#004619", "#2,7": "#00785D", "#2,8": "#00569E", "#2,9": "#0E0865", "#2,10": "#550069", "#2,11": "#873554", "#2,12": "#CC774D", "#2,13": "#63300D"}
 drawColor = [0,0,0]
-brushSize = 10
+brushSize = 3
 canvasSize = [800, 800]
 playerTurn = True               # 1 = Player; 0 = AI Opponent
-round = 1
+roundNum = 1
 gameOver = False
 
 # Round Timer
@@ -243,7 +264,7 @@ def changeColor(color):
     drawColor = color
         
 def save(name, playerType):
-    pygame.image.save(canvas, f"images/{playerType}/{time.strftime('%Y-%m-%d_%H-%M-%S_', time.localtime())}{name}.png")
+    pygame.image.save(canvas, f"images/{playerType}/{name}.png")
 
 # Main Game Loop
 while True:
@@ -276,16 +297,21 @@ while True:
             # Decrementing timer
             if (counter >= 0):
                 timerText = str(counter).rjust(3)
+                if (playerTurn and (counter % 60 - 5) % 10 == 0):
+                    imgName = f"{time.strftime('%Y-%m-%d_%H-%M-%S', time.localtime())}_round_{roundNum}_{60-counter}s_player_drawing"
+                    save(imgName, "temp/player_temp")
+                    CNNguess(imgName)
+                    ai_guesses = {}
             # Switching between player/ai turns when timer hits 0 and incrementing rounds
-            elif ((counter < 0) and not(round == 3 and not playerTurn)):
+            elif ((counter < 0) and not(roundNum == 3 and not playerTurn)):
                 playerTurn = not playerTurn
                 if (playerTurn == True):
                     timerText = "Player's Turn!"
-                    save(f"round_{round}_ai_drawing", "ai")
-                    round += 1
+                    save(f"{time.strftime('%Y-%m-%d_%H-%M-%S', time.localtime())}_round_{roundNum}_ai_drawing", "ai")
+                    roundNum += 1
                 else:
                     timerText = "AI's Turn!"
-                    save(f"round_{round}_player_drawing", "player")
+                    save(f"{time.strftime('%Y-%m-%d_%H-%M-%S', time.localtime())}_round_{roundNum}_player_drawing", "player")
                 drawColor = "#000000"
                 screen.blit(timerFont.render(timerText, True, (0, 0, 0)), (32, 48))
                 canvas.fill("#FFFFFF")
