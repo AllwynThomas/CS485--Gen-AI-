@@ -14,17 +14,17 @@ tf.config.set_visible_devices([], 'GPU')                    # Does not use GPU f
 from tensorflow import keras
 from tensorflow.keras import layers
 from tensorflow.keras.models import Sequential
-from PIL import Image
+from PIL import Image, ImageOps
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
 
 # Checking if TFlite model exists
 modelExists = False
-if Path("models/CNN/tflite_model.tflite").exists():
+if Path("models/CNN/tflite_model_40.tflite").exists():
     modelExists = True
 
 # Getting QuickDraw Images from API
-image_size = (28, 28)
+image_size = (40, 40)
 
 def generate_class_images(name, max_drawings, recognized):
     directory = Path("data/quickdraw_images/" + name)
@@ -55,7 +55,7 @@ if __name__ == "__main__":
     categories = quickdraw.QuickDrawData().drawing_names
     #start = time.time()
     if (not modelExists):
-        download_images_parallel(categories, max_drawings=1000, recognized=True)
+        download_images_parallel(categories, max_drawings=2000, recognized=True)
     #end = time.time()
     #print(f"Image Download Time: {(end-start)//60}m {(end-start)%60}s")
 
@@ -69,8 +69,7 @@ for r in range(1, 4):
     player_categories[r] = (random_categories[3*r], random_categories[3*r+1], random_categories[3*r+2])
 #print(player_categories, ai_categories)
 
-
-if (not modelExists):
+if (not modelExists or not Path("data/categories.txt").exists()):
     # Splitting Dataset into Train/Validate Sets    
     dataset_dir = Path("data/quickdraw_images")
     train_ds = tf.keras.utils.image_dataset_from_directory(
@@ -94,12 +93,22 @@ if (not modelExists):
     )
 
     AUTOTUNE = tf.data.AUTOTUNE
-    train_ds = train_ds.cache().shuffle(5000).prefetch(buffer_size=AUTOTUNE)
+    train_ds = train_ds.cache().shuffle(2000).prefetch(buffer_size=AUTOTUNE)
     val_ds = val_ds.cache().prefetch(buffer_size=AUTOTUNE)
+    
+    categories = train_ds.class_names
+    if (not Path("data/categories.txt").exists()):
+        with open("data/categories.txt", "w") as f:
+            f.write("\n".join(categories))
 
+# Load correctly ordered categories for predictions
+with open("data/categories.txt", "r") as f:
+    categories = f.read().splitlines()
+
+if (not modelExists):
     # Building CNN Model
     n_classes = 345
-    input_shape = (28, 28, 1)
+    input_shape = (40, 40, 1)
 
     model = Sequential([
         layers.InputLayer(input_shape=input_shape),
@@ -147,18 +156,47 @@ if (not modelExists):
         verbose=1,
         #callbacks=[tensorboard_callback]
     )
+    model.save("./models/CNN/bigger_model_40")
 
     # Converting the Model
-    model.export('./models/CNN/base_model')
-    converter = tf.lite.TFLiteConverter.from_saved_model("models/CNN/base_model")
+    model.export('./models/CNN/bigger_model_40_lite')
+    converter = tf.lite.TFLiteConverter.from_saved_model("models/CNN/bigger_model_40_lite")
     tflite_model = converter.convert()
 
     # Saving the Tflite Model.
-    with open('models/CNN/tflite_model.tflite', 'wb') as f:
+    with open('models/CNN/tflite_model_40.tflite', 'wb') as f:
         f.write(tflite_model)
 
+# Function for preprocessing player drawings to make them similar to training data
+def imagePreprocessing(image):
+    # Converting to grayscale
+    img = image.convert('L')
+    
+    # Convert to numpy array
+    img_array = np.array(img)
+    
+    # Find bounding box of non-white pixels
+    non_white_pixels = np.argwhere(img_array < 255)
+    y_min, x_min = non_white_pixels.min(axis=0)
+    y_max, x_max = non_white_pixels.max(axis=0)
+    
+    # Crop to bounding box
+    cropped_img = img_array[y_min:y_max + 1, x_min:x_max + 1]
+    
+    # Resize to fit within output_size while maintaining aspect ratio
+    cropped_img_pil = Image.fromarray(cropped_img)
+    cropped_img_resized = ImageOps.fit(cropped_img_pil, image_size, method=Image.Resampling.LANCZOS)
+    
+    # Pad to ensure it's centered on a 40x40 canvas
+    padded_img = Image.new('L', image_size, color=255)  # Create white canvas
+    padded_img.paste(cropped_img_resized, (0, 0))  # Paste resized image
+    
+    # Final resizing to ensure size compatibility
+    final_img = padded_img.resize(image_size)
+    return final_img
+
 # Load TFLite model and allocate tensors
-interpreter = tf.lite.Interpreter(model_path="models/CNN/tflite_model.tflite")
+interpreter = tf.lite.Interpreter(model_path="models/CNN/tflite_model_40.tflite")
 interpreter.allocate_tensors()
 
 # Get input and output tensors
@@ -170,17 +208,20 @@ def CNNguess(img_name):
     global ai_guesses
     # Preprocessing player's drawing
     player_img = Image.open(f"images/temp/player_temp/{img_name}.png")
-    gray_player_img = player_img.convert('L')
-    scaled_player_img = gray_player_img.resize(image_size)
-    scaled_player_img.save(f"images/temp/test/{img_name}.png")
+    processed_img = imagePreprocessing(player_img)
+    #processed_img.save(f"images/temp/test/{img_name}.png")
 
-    input_data = tf.convert_to_tensor(np.array(scaled_player_img, dtype=np.float32))
+    input_data = tf.convert_to_tensor(np.array(processed_img, dtype=np.float32))
     input_data = np.expand_dims(input_data, axis=(0, -1))
+    '''
+    kerasModel = tf.keras.models.load_model("models/CNN/bigger_model_40")
+    kerasModel.summary()
+    '''
     interpreter.set_tensor(input_details[0]['index'], input_data)
     interpreter.invoke()
-
+    
     # Finding top 3 possible categories based on 3 highest probabilities
-    output_data = interpreter.get_tensor(output_details[0]['index'])[0]
+    output_data = interpreter.get_tensor(output_details[0]['index'])[0] #kerasModel.predict(input_data)[0]
     top3_categories = np.argpartition(output_data, -3)[-3:]
     top3_categories_sorted = top3_categories[np.argsort(output_data[top3_categories])[::-1]]
     for i in top3_categories_sorted:
@@ -297,7 +338,7 @@ while True:
             # Decrementing timer
             if (counter >= 0):
                 timerText = str(counter).rjust(3)
-                if (playerTurn and (counter % 60 - 5) % 10 == 0):
+                if (playerTurn and 60-counter > 5 and(counter % 60 - 5) % 10 == 0):
                     imgName = f"{time.strftime('%Y-%m-%d_%H-%M-%S', time.localtime())}_round_{roundNum}_{60-counter}s_player_drawing"
                     save(imgName, "temp/player_temp")
                     CNNguess(imgName)
