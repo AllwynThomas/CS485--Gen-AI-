@@ -11,11 +11,11 @@ import pandas as pd
 import numpy as np
 import tensorflow as tf
 from matplotlib import pyplot as plt
-tf.config.set_visible_devices([], 'GPU')                    # Does not use GPU for processing
+#tf.config.set_visible_devices([], 'GPU')                    # Does not use GPU for processing
 from tensorflow import keras
 from tensorflow.keras import layers
 from tensorflow.keras.models import Sequential
-from PIL import Image, ImageOps
+from PIL import Image, ImageOps, ImageEnhance
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
 
@@ -24,238 +24,15 @@ CNNmodelExists = False
 GANmodelExists = False
 if Path("models/CNN/tflite_model_40.tflite").exists():
     CNNmodelExists = True
-if Path("models/GAN/RMSProp_1000_Epochs_model.tflite").exists():
+if Path("models/GAN").exists():
     GANmodelExists = True
 
 # Getting QuickDraw Images from API
-image_size = (40, 40)
+GAN_image_size = 28
+CNN_image_size = 40
 
-# Getting dataset for training cGAN
-if (not GANmodelExists):
-    # Loading images
-    dataset_dir = Path("data/quickdraw_images")
-    GAN_train_ds = tf.keras.utils.image_dataset_from_directory(
-        dataset_dir,
-        seed=42,
-        color_mode="grayscale",
-        image_size=image_size,
-        batch_size=40
-    )
-    
-    class_names = GAN_train_ds.class_names
-    n_classes = len(class_names)
-    AUTOTUNE = tf.data.AUTOTUNE
-    
-    # One Hot Encoding labels and normalizing
-    def GANpreprocess(image, label):
-        image = tf.cast(image, tf.float32) / 255.0
-        label = tf.one_hot(label, depth=n_classes)
-        return image, label
-    GAN_train_ds = GAN_train_ds.map(GANpreprocess, num_parallel_calls=AUTOTUNE)
-    GAN_train_ds = GAN_train_ds.cache().shuffle(4000).prefetch(buffer_size=AUTOTUNE)
-
-# Creating cGAN Model
-if (not GANmodelExists):
-    # Building Generator
-    def build_generator(noise_dim=100, depth=64, p=0.4):
-        # Define inputs
-        label_dim = n_classes
-        input_dim = noise_dim + label_dim
-        noise_label_input = keras.layers.Input((input_dim,))
-        
-        # First dense layer
-        dense1 = keras.layers.Dense(10*10*depth)(noise_label_input)
-        dense1 = keras.layers.BatchNormalization(momentum=0.9)(dense1) # default momentum for moving average is 0.99
-        dense1 = keras.layers.Activation(activation='relu')(dense1)
-        dense1 = keras.layers.Reshape((10,10,depth))(dense1)
-        dense1 = keras.layers.Dropout(p)(dense1)
-        
-        # De-Convolutional layers
-        conv1 = keras.layers.UpSampling2D()(dense1)
-        conv1 = keras.layers.Conv2DTranspose(int(depth/2), 
-                                kernel_size=5, padding='same', 
-                                activation=None,)(conv1)
-        conv1 = keras.layers.BatchNormalization(momentum=0.9)(conv1)
-        conv1 = keras.layers.Activation(activation='relu')(conv1)
-        
-        conv2 = keras.layers.UpSampling2D()(conv1)
-        conv2 = keras.layers.Conv2DTranspose(int(depth/4), 
-                                kernel_size=5, padding='same', 
-                                activation=None,)(conv2)
-        conv2 = keras.layers.BatchNormalization(momentum=0.9)(conv2)
-        conv2 = keras.layers.Activation(activation='relu')(conv2)
-        
-        conv3 = keras.layers.Conv2DTranspose(int(depth/8), 
-                                kernel_size=5, padding='same', 
-                                activation=None,)(conv2)
-        conv3 = keras.layers.BatchNormalization(momentum=0.9)(conv3)
-        conv3 = keras.layers.Activation(activation='relu')(conv3)
-
-        # Output layer
-        image = keras.layers.Conv2D(1, kernel_size=5, padding='same', 
-                    activation='sigmoid')(conv3)
-
-        # Model definition    
-        model = keras.Model(inputs=noise_label_input, outputs=image)
-        
-        return model
-    generator = build_generator()
-    #generator.summary()
-
-    # Building Discriminator
-    def build_discriminator(depth=64, p=0.4, label_dim=n_classes):
-
-         # Define inputs
-        image_input = keras.layers.Input((40, 40, 1))  # Image input
-        label_input = keras.layers.Input((label_dim,))       # Label input (one-hot vector)
-
-        # Embed and reshape label
-        label_embedding = keras.layers.Dense(40 * 40)(label_input)
-        label_embedding = keras.layers.Reshape((40, 40, 1))(label_embedding)
-
-        # Combine image and label
-        combined_input = keras.layers.Concatenate()([image_input, label_embedding])
-        
-        # Convolutional layers
-        conv1 = keras.layers.Conv2D(depth*1, 5, strides=2, 
-                    padding='same', activation='relu')(combined_input)
-        conv1 = keras.layers.Dropout(p)(conv1)
-        
-        conv2 = keras.layers.Conv2D(depth*2, 5, strides=2, 
-                    padding='same', activation='relu')(conv1)
-        conv2 = keras.layers.Dropout(p)(conv2)
-        
-        conv3 = keras.layers.Conv2D(depth*4, 5, strides=2, 
-                    padding='same', activation='relu')(conv2)
-        conv3 = keras.layers.Dropout(p)(conv3)
-        
-        conv4 = keras.layers.Conv2D(depth*8, 5, strides=1, 
-                    padding='same', activation='relu')(conv3)
-        conv4 = keras.layers.Flatten()(keras.layers.Dropout(p)(conv4))
-        
-        # Output layer
-        prediction = keras.layers.Dense(1, activation='sigmoid')(conv4)
-        
-        # Model definition
-        model = keras.Model(inputs=[image_input, label_input], outputs=prediction)
-    
-        return model
-    discriminator = build_discriminator()
-    #discriminator.summary()
-    
-    # ONLY USE IF YOU ARE RUNNING THE PROGRAM WITH A GPU
-    discriminator.compile(loss='binary_crossentropy', 
-                      optimizer=keras.optimizers.RMSprop(learning_rate=0.0008, 
-                                        clipvalue=1.0), 
-                      metrics=['accuracy'])
-    '''
-    # USE IF YOU ARE RUNNING THE PROGRAM WITH CPU ONLY
-    discriminator.compile(loss='binary_crossentropy', 
-                       optimizer=keras.optimizers.Adam(learning_rate=0.0008, 
-                                     clipvalue=1.0), 
-                       metrics=['accuracy'])
-    '''
-    
-    # Creating Adversarial Model
-    # Generator inputs
-    z = keras.layers.Input(shape=(100,))                 # Noise vector
-    label = keras.layers.Input(shape=(n_classes,))       # One-hot encoded label
-    z_label = keras.layers.Concatenate(axis=1)([z, label])
-
-    # Generator output
-    img = generator(z_label)             # Generator now takes z_label as input
-
-    # Discriminator input
-    discriminator.trainable = False
-    pred = discriminator([img, label])     # Discriminator takes [image, label] as input
-
-    # Adversarial model
-    adversarial_model = keras.Model([z, label], pred)  # Model inputs are [z, label]
-    adversarial_model.compile(
-        loss='binary_crossentropy',
-        optimizer=keras.optimizers.RMSprop(learning_rate=0.0004, clipvalue=1.0),
-        metrics=['accuracy']
-    )
-    
-    # Training
-    def train_cgan(epochs=500, batch=40, z_dim=100, n_classes=345):
-        d_metrics = []
-        a_metrics = []
-        
-        running_d_loss = 0
-        running_d_acc = 0
-        running_a_loss = 0
-        running_a_acc = 0
-        
-        for i in range(epochs):
-            # Sample real images and labels
-            for image_batch, label_batch in GAN_train_ds.take(1):  # Take a single batch
-                real_imgs = np.array(image_batch)  # Convert images to NumPy array
-                real_labels = np.array(label_batch) # Convert labels to NumPy array
-            if len(real_labels.shape) > 2:
-                real_labels = tf.reshape(real_labels, (real_labels.shape[0], -1))    
-            
-            # Generate fake images
-            noise = np.random.uniform(-1.0, 1.0, size=[batch, z_dim])
-            random_labels = np.random.randint(0, n_classes, batch)
-            random_labels_one_hot = tf.keras.utils.to_categorical(random_labels, n_classes)
-            noise_with_labels = np.concatenate((noise, random_labels_one_hot), axis=1)
-            fake_imgs = generator.predict(noise_with_labels)
-            
-            # Concatenate images and labels for discriminator input
-            x = np.concatenate((real_imgs, fake_imgs), axis=0)
-            labels = np.concatenate((real_labels, random_labels_one_hot), axis=0)
-            d_inputs = [x, labels]
-            
-            # Assign y labels for discriminator
-            y = np.ones([2 * batch, 1])
-            y[batch:] = 0  # Fake labels as 0
-            
-            # Train discriminator
-            d_metrics.append(discriminator.train_on_batch(d_inputs, y))
-            running_d_loss += d_metrics[-1][0]
-            running_d_acc += d_metrics[-1][1]
-            
-            # Adversarial net inputs
-            noise = np.random.uniform(-1.0, 1.0, size=[batch, z_dim])
-            random_labels = np.random.randint(0, n_classes, batch)
-            random_labels_one_hot = tf.keras.utils.to_categorical(random_labels, n_classes)
-            noise_with_labels = np.concatenate((noise, random_labels_one_hot), axis=1)
-            
-            # Adversarial labels
-            y_adv = np.ones([batch, 1])  # "Real" labels for the generator
-            
-            # Train adversarial net
-            a_metrics.append(adversarial_model.train_on_batch([noise, random_labels_one_hot], y_adv))
-            running_a_loss += a_metrics[-1][0]
-            running_a_acc += a_metrics[-1][1]
-            
-            # Periodically print progress & generate images
-            if (i + 1) % 20 == 0:
-                print(f'Epoch #{i+1}')
-                log_msg = f"{i+1}: [D loss: {running_d_loss/(i+1):.4f}, acc: {running_d_acc/(i+1):.4f}]"
-                log_msg += f"  [A loss: {running_a_loss/(i+1):.4f}, acc: {running_a_acc/(i+1):.4f}]"
-                print(log_msg)
-                
-                # Generate and plot images for visualization
-                gen_imgs = generator.predict(noise_with_labels[:40])
-                plt.figure(figsize=(5, 5))
-                for k in range(gen_imgs.shape[0]):
-                    plt.subplot(4, 10, k+1)
-                    plt.imshow(gen_imgs[k, :, :, 0], cmap='gray')
-                    plt.axis('off')
-                plt.tight_layout()
-                plt.savefig(f"figures/RMSProp_1000_Epochs/Epoch_{i+1}.png")
-        return a_metrics, d_metrics
-    a_metrics_complete, d_metrics_complete = train_cgan()
-    
-    # Saving the model
-    adversarial_model.save("./models/GAN/RMSProp_1000_Epoch_model")
-    adversarial_model.export('./models/GAN/RMSProp_1000_Epoch_model_lite')
-    
-quit()
-def generate_class_images(name, max_drawings, recognized):
-    directory = Path("data/quickdraw_images/" + name)
+def generate_class_images(name, max_drawings, recognized, img_size, path):
+    directory = Path(path + name)
     if directory.exists():
         return
     
@@ -264,16 +41,16 @@ def generate_class_images(name, max_drawings, recognized):
         images = quickdraw.QuickDrawDataGroup(name, max_drawings=max_drawings, recognized=recognized, cache_dir="data/.quickdrawcache")
         for img in images.drawings:
             filename = directory.as_posix() + "/" + str(img.key_id) + ".png"
-            img.get_image(stroke_width=3).resize(image_size).save(filename)
+            img.get_image(stroke_width=3).resize((img_size, img_size)).save(filename)
     except:
         return
 
-def download_images_parallel(labels, max_drawings, recognized):
+def download_images_parallel(labels, max_drawings, recognized, img_size, path):
     # Use the number of CPUs or threads available
     max_threads = os.cpu_count() or 4  # Fallback to 4 if os.cpu_count() returns None
     with ThreadPoolExecutor(max_workers=max_threads) as executor:
         futures = [
-            executor.submit(generate_class_images, label, max_drawings, recognized)
+            executor.submit(generate_class_images, label, max_drawings, recognized, img_size, path)
             for label in labels
         ]
         for future in futures:
@@ -282,31 +59,296 @@ def download_images_parallel(labels, max_drawings, recognized):
 if __name__ == "__main__":
     categories = quickdraw.QuickDrawData().drawing_names
     #start = time.time()
-    if (not CNNmodelExists or not GANmodelExists):
-        download_images_parallel(categories, max_drawings=2000, recognized=True)
+    if (not CNNmodelExists):
+        download_images_parallel(categories, max_drawings=3000, recognized=True, img_size=CNN_image_size, path="data/quickdraw_images_40/")
+    if (not GANmodelExists):
+        download_images_parallel(categories, max_drawings=3000, recognized=True, img_size=GAN_image_size, path="data/quickdraw_images_28/")    
     #end = time.time()
     #print(f"Image Download Time: {(end-start)//60}m {(end-start)%60}s")
 
 # Picking Categories
-random_categories = random.sample(categories, 6)
+player_random_categories = random.sample(categories, 3)
+dir_path = f"{os.getcwd()}/figures/GAN/RMSProp_1000_Epochs_28"
+all_items = os.listdir(dir_path)
+dirs = [item for item in all_items if os.path.isdir(os.path.join(dir_path, item))]
+ai_random_categories = random.sample(dirs, 3)
 player_categories = {}
 ai_categories = {}
 ai_guesses = {}
 for r in range(1, 4):
-    ai_categories[r] = random_categories[r-1]
-    player_categories[r] = random_categories[r+2]
-#print(player_categories, ai_categories)
+    player_categories[r] = player_random_categories[r-1]
+    ai_categories[r] = ai_random_categories[r-1]
+print(player_categories, ai_categories)
+
+# Function for GAN to draw and save images
+def GANdraw(model_label, roundNum, num):
+    print(f"Drawing: {model_label}")
+    if (num < 7):
+        rand_num = random.randint(4, 9)
+        image_idx = (num + 4) * 100
+        saved_image = Image.open(f"figures/GAN/RMSProp_1000_Epochs_28/{model_label}/{model_label}_Epoch_{image_idx}/{rand_num}.png").resize((700, 700), resample=Image.Resampling.LANCZOS)
+        contrastEnhancer = ImageEnhance.Contrast(saved_image)
+        contrastImg = contrastEnhancer.enhance(1.5)
+        sharpnessEnhancer = ImageEnhance.Sharpness(contrastImg)
+        sharpnessEnhancer.enhance(1.5).save(f"images/temp/ai_temp/round_{roundNum}/{num}.png")
+    else:        
+        # Load TFLite model and allocate tensors
+        interpreter = tf.lite.Interpreter(model_path=f"models/GAN/{model_label}_RMSProp_1000_Epoch_28_model_lite.tflite")
+        interpreter.allocate_tensors()
+
+        # Get input and output tensors
+        input_details = interpreter.get_input_details()
+        output_details = interpreter.get_output_details()
+        
+        input_data = tf.convert_to_tensor(np.random.uniform(-1.0, 1.0, size=[1, 100]), dtype=tf.float32)
+        interpreter.set_tensor(input_details[0]['index'], input_data)
+        interpreter.invoke()
+        
+        # Saving generated image
+        output_data = interpreter.get_tensor(output_details[0]['index']) #kerasModel.predict(input_data)
+        img_array = output_data[0, :, :, 0]  
+        img_array = (img_array * 255).astype(np.uint8)
+        img = Image.fromarray(img_array, mode="L").resize((700, 700), resample=Image.Resampling.LANCZOS)
+        contrastEnhancer = ImageEnhance.Contrast(img)
+        contrastImg = contrastEnhancer.enhance(1.5)
+        sharpnessEnhancer = ImageEnhance.Sharpness(contrastImg)
+        sharpnessEnhancer.enhance(1.5).save(f"images/temp/ai_temp/round_{roundNum}/{num}.png")
+
+# Function to delete temp images every round
+def tempDelete(roundNum):
+    tempdir = f"{os.getcwd()}/images/temp/ai_temp/round_{roundNum}"
+    files = os.listdir(tempdir)
+    for file in files:
+        try:
+            file_path = os.path.join(tempdir, file)
+            os.remove(file_path)
+        except Exception:
+            return
+    
+# Loading & Generating AI drawings for the 3 rounds
+for roundNum, label in ai_categories.items():
+    for i in range(10):
+        GANdraw(label, roundNum, i)
+
+# Training GAN for each category
+for model_category in categories:
+    # Getting dataset for training GAN
+    if (not GANmodelExists):
+        # Loading images
+        model_category = model_category
+        dataset_dir = Path(f"data/quickdraw_images_28/{model_category}")
+        GAN_train_ds = tf.keras.utils.image_dataset_from_directory(
+            dataset_dir,
+            seed=42,
+            color_mode="grayscale",
+            image_size=(GAN_image_size, GAN_image_size),
+            batch_size=40,
+            labels=None,
+            label_mode=None
+        )
+        
+        # Normalizing Images
+        def GANpreprocess(image):
+            image = tf.cast(image, tf.float32) / 255.0
+            return image
+        AUTOTUNE = tf.data.AUTOTUNE
+        GAN_train_ds = GAN_train_ds.map(GANpreprocess, num_parallel_calls=AUTOTUNE)
+        GAN_train_ds = GAN_train_ds.cache().shuffle(1024).prefetch(buffer_size=AUTOTUNE)
+
+    # Creating GAN Model
+    if (not GANmodelExists):
+        # Building Generator
+        def build_generator(noise_dim=100, depth=64, p=0.4):
+            model = Sequential([
+                # Input layer and first dense layer
+                keras.layers.InputLayer(input_shape=(noise_dim,)),
+                keras.layers.Dense(7 * 7 * depth),
+                keras.layers.BatchNormalization(momentum=0.9),
+                keras.layers.Activation('relu'),
+                keras.layers.Reshape((7, 7, depth)),
+                keras.layers.Dropout(p),
+
+                # First UpSampling and Conv2DTranspose
+                keras.layers.UpSampling2D(),
+                keras.layers.Conv2DTranspose(
+                    int(depth / 2), kernel_size=5, padding='same'),
+                keras.layers.BatchNormalization(momentum=0.9),
+                keras.layers.Activation('relu'),
+
+                # Second UpSampling and Conv2DTranspose
+                keras.layers.UpSampling2D(),
+                keras.layers.Conv2DTranspose(
+                    int(depth / 4), kernel_size=5, padding='same'),
+                keras.layers.BatchNormalization(momentum=0.9),
+                keras.layers.Activation('relu'),
+
+                # Third Conv2DTranspose
+                keras.layers.Conv2DTranspose(
+                    int(depth / 8), kernel_size=5, padding='same'),
+                keras.layers.BatchNormalization(momentum=0.9),
+                keras.layers.Activation('relu'),
+
+                # Output layer
+                keras.layers.Conv2D(1, kernel_size=5, padding='same', activation='sigmoid')
+            ])
+            return model
+        generator = build_generator()
+        #generator.summary()
+
+        # Building Discriminator
+        def build_discriminator(depth=64, p=0.4):
+            model = Sequential([
+                # Input layer
+                keras.layers.InputLayer(input_shape=(GAN_image_size, GAN_image_size, 1)),
+
+                # First convolutional layer
+                keras.layers.Conv2D(depth * 1, kernel_size=5, strides=2, padding='same', activation='relu'),
+                keras.layers.Dropout(p),
+
+                # Second convolutional layer
+                keras.layers.Conv2D(depth * 2, kernel_size=5, strides=2, padding='same', activation='relu'),
+                keras.layers.Dropout(p),
+
+                # Third convolutional layer
+                keras.layers.Conv2D(depth * 4, kernel_size=5, strides=2, padding='same', activation='relu'),
+                keras.layers.Dropout(p),
+
+                # Fourth convolutional layer
+                keras.layers.Conv2D(depth * 8, kernel_size=5, strides=1, padding='same', activation='relu'),
+                keras.layers.Dropout(p),
+
+                # Flatten and dense output layer
+                keras.layers.Flatten(),
+                keras.layers.Dense(1, activation='sigmoid')
+            ])
+            return model
+        discriminator = build_discriminator()
+        #discriminator.summary()
+        
+        discriminator.compile(
+            loss='binary_crossentropy', 
+            optimizer=keras.optimizers.RMSprop(learning_rate=0.0008, clipvalue=1.0), 
+            metrics=['accuracy']
+        )
+        
+        # Creating Adversarial Model
+        # Generator inputs
+        z = keras.layers.Input(shape=(100,))                
+
+        # Generator output
+        img = generator(z)             
+
+        # Discriminator input
+        discriminator.trainable = False
+        pred = discriminator(img)
+
+        # Adversarial model
+        adversarial_model = keras.Model(z, pred)
+        adversarial_model.compile(
+            loss='binary_crossentropy',
+            optimizer=keras.optimizers.RMSprop(learning_rate=0.0004, clipvalue=1.0),
+            metrics=['accuracy']
+        )
+        
+        # Training
+        def train_gan(epochs=1000, batch=40, z_dim=100):
+            d_metrics = []
+            a_metrics = []
+            
+            running_d_loss = 0
+            running_d_acc = 0
+            running_a_loss = 0
+            running_a_acc = 0
+        
+            for i in range(epochs):
+                # Sample real images
+                for image_batch in GAN_train_ds.take(1):  # Take a single batch
+                    real_imgs = np.array(image_batch)  # Convert images to NumPy array
+                
+                # generate fake images: 
+                fake_imgs = generator.predict(
+                    np.random.uniform(-1.0, 1.0, 
+                                    size=[batch, z_dim]), verbose=0)
+                
+                # concatenate images as discriminator inputs:
+                x = np.concatenate((real_imgs,fake_imgs))
+                
+                # Assign y labels for discriminator
+                y = np.ones([2 * batch, 1])
+                y[batch:] = 0  # Fake labels as 0
+                
+                # train discriminator: 
+                d_metrics.append(
+                    discriminator.train_on_batch(x,y)
+                )
+                running_d_loss += d_metrics[-1][0]
+                running_d_acc += d_metrics[-1][1]
+                
+                # adversarial net's noise input and "real" y: 
+                noise = np.random.uniform(-1.0, 1.0, 
+                                        size=[batch, z_dim])
+                y = np.ones([batch,1])
+                
+                # train adversarial net: 
+                a_metrics.append(
+                    adversarial_model.train_on_batch(noise,y)
+                ) 
+                running_a_loss += a_metrics[-1][0]
+                running_a_acc += a_metrics[-1][1]
+                
+                # Periodically print progress & generate images
+                if (i + 1) % 100 == 0:
+                    print(f'Epoch #{i+1}')
+                    log_msg = f"{i+1}: [D loss: {running_d_loss/(i+1):.4f}, acc: {running_d_acc/(i+1):.4f}]"
+                    log_msg += f"  [A loss: {running_a_loss/(i+1):.4f}, acc: {running_a_acc/(i+1):.4f}]"
+                    print(log_msg)
+                    
+                    try:
+                        Path(f"figures/GAN/RMSProp_1000_Epochs_28/{model_category}/{model_category}_Epoch_{i+1}").mkdir(parents=True)
+                    except FileExistsError:
+                        pass
+                    # Generate and plot some images for visualization and save others for later
+                    noise = np.random.uniform(-1.0, 1.0, 
+                                        size=[10, z_dim])
+                    gen_imgs = generator.predict(noise, verbose=0)
+                    for idx in range(4, 10):  
+                        img_array = gen_imgs[idx, :, :, 0]  
+                        img_array = (img_array * 255).astype(np.uint8)  
+                        img = Image.fromarray(img_array, mode="L")
+                        img.save(f"figures/GAN/RMSProp_1000_Epochs_28/{model_category}/{model_category}_Epoch_{i+1}/{idx}.png")
+                    plt.figure(figsize=(6, 6))
+                    for k in range(4):
+                        plt.subplot(2, 2, k+1)
+                        plt.imshow(gen_imgs[k, :, :, 0], cmap='gray')
+                        plt.axis('off')
+                    plt.suptitle(f"{model_category.capitalize()} at Epoch {i+1}\n{log_msg}")
+                    plt.tight_layout()
+                    plt.savefig(f"figures/GAN/RMSProp_1000_Epochs_28/{model_category}/{model_category}_Epoch_{i+1}/visual.png")
+                    plt.close()
+            return a_metrics, d_metrics
+        a_metrics_complete, d_metrics_complete = train_gan()
+        
+        # Saving the model
+        generator.export(f"./models/GAN/{model_category}_RMSProp_1000_Epoch_28_model_lite")
+        
+        # Converting to Tflite
+        converter = tf.lite.TFLiteConverter.from_saved_model(f"models/GAN/{model_category}_RMSProp_1000_Epoch_28_model_lite")
+        tflite_model = converter.convert()
+
+        # Saving the Tflite Model.
+        with open(f"models/GAN/{model_category}_RMSProp_1000_Epoch_28_model_lite.tflite", 'wb') as f:
+            f.write(tflite_model)
 
 if (not CNNmodelExists or not Path("data/categories.txt").exists()):
     # Splitting Dataset into Train/Validate Sets    
-    dataset_dir = Path("data/quickdraw_images")
+    dataset_dir = Path("data/quickdraw_images_40")
     train_ds = tf.keras.utils.image_dataset_from_directory(
         dataset_dir,
         validation_split=0.2,
         subset="training",
         seed=42,
         color_mode="grayscale",
-        image_size=image_size,
+        image_size=(CNN_image_size, CNN_image_size),
         batch_size=32
     )
 
@@ -316,7 +358,7 @@ if (not CNNmodelExists or not Path("data/categories.txt").exists()):
         subset="validation",
         seed=42,
         color_mode="grayscale",
-        image_size=image_size,
+        image_size=(CNN_image_size, CNN_image_size),
         batch_size=32
     )
 
@@ -410,21 +452,21 @@ def imagePreprocessing(image):
         y_max, x_max = non_white_pixels.max(axis=0)
     except:
         # Return white image if no drawing
-        return Image.new('L', image_size, color=255)    
+        return Image.new('L', (CNN_image_size, CNN_image_size), color=255)    
     
     # Crop to bounding box
     cropped_img = img_array[y_min:y_max + 1, x_min:x_max + 1]
     
     # Resize to fit within output_size while maintaining aspect ratio
     cropped_img_pil = Image.fromarray(cropped_img)
-    cropped_img_resized = ImageOps.fit(cropped_img_pil, image_size, method=Image.Resampling.LANCZOS)
+    cropped_img_resized = ImageOps.fit(cropped_img_pil, (CNN_image_size, CNN_image_size), method=Image.Resampling.LANCZOS)
     
     # Pad to ensure it's centered on a 40x40 canvas
-    padded_img = Image.new('L', image_size, color=255)  # Create white canvas
+    padded_img = Image.new('L', (CNN_image_size, CNN_image_size), color=255)  # Create white canvas
     padded_img.paste(cropped_img_resized, (0, 0))  # Paste resized image
     
     # Final resizing to ensure size compatibility
-    final_img = padded_img.resize(image_size)
+    final_img = padded_img.resize((CNN_image_size, CNN_image_size))
     return final_img
 
 # Load TFLite model and allocate tensors
@@ -445,10 +487,6 @@ def CNNguess(img_name):
 
     input_data = tf.convert_to_tensor(np.array(processed_img, dtype=np.float32))
     input_data = np.expand_dims(input_data, axis=(0, -1))
-    '''
-    kerasModel = tf.keras.models.load_model("models/CNN/bigger_model_40")
-    #kerasModel.summary()
-    '''
     interpreter.set_tensor(input_details[0]['index'], input_data)
     interpreter.invoke()
     
@@ -570,20 +608,27 @@ while True:
             counter -= 1
             timerText = str(counter).rjust(3)
             # Decrementing timer
-            if (counter >= 0):
+            if (counter > 0):
                 timerText = str(counter).rjust(3)
                 # CNN guessing player's image every 10s
-                if (playerTurn and 60-counter > 5 and(counter % 60 - 5) % 10 == 0):
+                if (playerTurn and 60-counter > 5 and (counter % 60 - 5) % 10 == 0):
                     imgName = f"{time.strftime('%Y-%m-%d_%H-%M-%S', time.localtime())}_round_{roundNum}_{60-counter}s_player_drawing"
                     save(imgName, "temp/player_temp")
                     CNNguess(imgName)
                     ai_guesses = {}
+                # GAN drawing image every 6s
+                if (not playerTurn and (counter % 6) == 0):
+                    idx = round((60-counter) / 6)
+                    savedImg = pygame.image.load(f"images/temp/ai_temp/round_{roundNum}/{idx}.png")
+                    canvas.blit(savedImg, ((canvas.width - savedImg.width) / 2, (canvas.height - savedImg.height) / 2))
+                    pygame.display.flip()
             # Switching between player/ai turns when timer hits 0 and incrementing rounds
-            elif ((counter < 0) and not(roundNum == 3 and not playerTurn)):
+            elif ((counter <= 0) and not(roundNum == 3 and not playerTurn)):
                 playerTurn = not playerTurn
                 if (playerTurn == True):
                     timerText = "Player's Turn!"
                     save(f"{time.strftime('%Y-%m-%d_%H-%M-%S', time.localtime())}_round_{roundNum}_ai_drawing", "ai")
+                    tempDelete(roundNum)
                     roundNum += 1
                     targetWord = player_categories[roundNum]
                 else:
@@ -603,6 +648,7 @@ while True:
                 timerText = "Game Over!"
                 screen.blit(timerFont.render(timerText, True, (0, 0, 0)), (32, 48))
                 pygame.display.flip()
+                tempDelete(roundNum)
         ui_manager.process_events(event)
     ui_manager.update(time_delta)
     

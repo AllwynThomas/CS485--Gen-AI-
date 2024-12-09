@@ -1,6 +1,9 @@
 data/.quickdrawcache/
-data/quickdraw_images/
-models/CNN/logs/
-tf/
-tf_3.11/
-images/temp
+data/quickdraw_images_40/
+data/quickdraw_images_28/
+images/ai/*
+images/player/*
+images/temp/ai_temp/round_1/*
+images/temp/ai_temp/round_2/*
+images/temp/ai_temp/round_3/*
+images/temp/player_temp/*
