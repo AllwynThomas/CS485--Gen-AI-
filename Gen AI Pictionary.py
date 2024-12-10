@@ -82,7 +82,6 @@ print(player_categories, ai_categories)
 
 # Function for GAN to draw and save images
 def GANdraw(model_label, roundNum, num):
-    print(f"Drawing: {model_label}")
     if (num < 7):
         rand_num = random.randint(4, 9)
         image_idx = (num + 4) * 100
@@ -493,7 +492,7 @@ def CNNguess(img_name):
     # Finding top 3 possible categories based on 5 highest probabilities
     output_data = interpreter.get_tensor(output_details[0]['index'])[0] #kerasModel.predict(input_data)[0]
     top5_categories = np.argpartition(output_data, -5)[-5:]
-    top5_categories_sorted = top5_categories[np.argsort(output_data[top5_categories])[::-1]]
+    top5_categories_sorted = top5_categories[np.argsort(output_data[top5_categories])[:]]
     for i in top5_categories_sorted:
         ai_guesses[categories[i]] = round(output_data[i]*100, 2)
     print(f"\nPredicted Categories: {ai_guesses}\n")
@@ -527,6 +526,7 @@ canvasSize = [800, 800]
 playerTurn = True               # 1 = Player; 0 = AI Opponent
 roundNum = 1
 gameOver = False
+hintSet = False
 
 # Round Timer
 roundTime = 60
@@ -534,6 +534,7 @@ counter, timerText = roundTime, str(roundTime).rjust(3)
 TIMEREVENT = pygame.USEREVENT+3
 pygame.time.set_timer(TIMEREVENT, 1000)
 timerFont = pygame.font.SysFont('Courier New', 30)
+hintFont = pygame.font.SysFont('Consolas', 30)
 
 # Canvas Setup
 canvas = pygame.Surface(canvasSize)
@@ -610,12 +611,20 @@ while True:
             # Decrementing timer
             if (counter > 0):
                 timerText = str(counter).rjust(3)
+                # Displaying AI's word as blanks for the player to guess
+                if (not playerTurn):
+                    if (((60-counter) % secondsPerLetter) == 0):
+                        underscore_indices = [i for i, char in enumerate(wordHint) if char == "_"]
+                        randIdx = random.choice(underscore_indices)
+                        wordHint = wordHint[:randIdx] + targetWord[randIdx] + wordHint[randIdx+1:]
                 # CNN guessing player's image every 10s
                 if (playerTurn and 60-counter > 5 and (counter % 60 - 5) % 10 == 0):
                     imgName = f"{time.strftime('%Y-%m-%d_%H-%M-%S', time.localtime())}_round_{roundNum}_{60-counter}s_player_drawing"
                     save(imgName, "temp/player_temp")
                     CNNguess(imgName)
-                    ai_guesses = {}
+                # Entering CNN guesses in chat every 2s
+                if (playerTurn and 60-counter > 15 and (counter % 60 - 15) % 2 == 0):
+                    enteredText = ai_guesses.popitem()[0]
                 # GAN drawing image every 6s
                 if (not playerTurn and (counter % 6) == 0):
                     idx = round((60-counter) / 6)
@@ -624,17 +633,17 @@ while True:
                     pygame.display.flip()
             # Switching between player/ai turns when timer hits 0 and incrementing rounds
             elif ((counter <= 0) and not(roundNum == 3 and not playerTurn)):
+                ai_guesses = {}
                 playerTurn = not playerTurn
                 if (playerTurn == True):
-                    timerText = "Player's Turn!"
+                    timerText = f"Player's Turn!\nAI Drawn Word: {targetWord}"
                     save(f"{time.strftime('%Y-%m-%d_%H-%M-%S', time.localtime())}_round_{roundNum}_ai_drawing", "ai")
                     tempDelete(roundNum)
                     roundNum += 1
-                    targetWord = player_categories[roundNum]
+                    hintSet = False
                 else:
-                    timerText = "AI's Turn!"
+                    timerText = f"AI's Turn!\nPlayer Drawn Word: {targetWord}"
                     save(f"{time.strftime('%Y-%m-%d_%H-%M-%S', time.localtime())}_round_{roundNum}_player_drawing", "player")
-                    targetWord = ai_categories[roundNum]
                 drawColor = "#000000"
                 screen.blit(timerFont.render(timerText, True, (0, 0, 0)), (32, 48))
                 canvas.fill("#FFFFFF")
@@ -668,7 +677,20 @@ while True:
                 [dx, dy],
                 brushSize,
             )
-         
+        
+        # Displaying Player's word when drawing
+        if (playerTurn):
+            targetWord = player_categories[roundNum]
+            screen.blit(hintFont.render(targetWord, True, (0, 0, 0)), (1210, 35))
+        else:
+            targetWord = ai_categories[roundNum]
+            secondsPerLetter = round(60 / (len(targetWord)/2))
+            if (not hintSet):
+                wordHint = "_"*len(targetWord)
+                hintSet = True
+            longHint = wordHint.replace("", " ")[1:-1]
+            canvas.blit(hintFont.render(wordHint, True, (0, 0, 0)), (1210, 35))
+        
         # Text Input
         if (isTextInputActive):
             inputColor = inputActive
