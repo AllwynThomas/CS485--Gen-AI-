@@ -4,8 +4,8 @@ import pygame
 import pygame_gui
 import pygame_gui.elements.ui_button
 import ctypes
-import time
 import random
+import time
 import quickdraw
 import pandas as pd
 import numpy as np
@@ -18,6 +18,8 @@ from tensorflow.keras.models import Sequential
 from PIL import Image, ImageOps, ImageEnhance
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
+from math import ceil
+
 
 # Checking if TFlite model exists
 CNNmodelExists = False
@@ -78,7 +80,7 @@ ai_guesses = {}
 for r in range(1, 4):
     player_categories[r] = player_random_categories[r-1]
     ai_categories[r] = ai_random_categories[r-1]
-print(player_categories, ai_categories)
+#print(player_categories, ai_categories)
 
 # Function for GAN to draw and save images
 def GANdraw(model_label, roundNum, num):
@@ -495,7 +497,7 @@ def CNNguess(img_name):
     top5_categories_sorted = top5_categories[np.argsort(output_data[top5_categories])[:]]
     for i in top5_categories_sorted:
         ai_guesses[categories[i]] = round(output_data[i]*100, 2)
-    print(f"\nPredicted Categories: {ai_guesses}\n")
+    #print(f"\nPredicted Categories: {ai_guesses}\n")
     
     # Deleting temp drawing
     current_dir = os.getcwd()
@@ -527,6 +529,9 @@ playerTurn = True               # 1 = Player; 0 = AI Opponent
 roundNum = 1
 gameOver = False
 hintSet = False
+correct = False
+playerPoints = 0
+aiPoints = 0
 
 # Round Timer
 roundTime = 60
@@ -624,7 +629,20 @@ while True:
                     CNNguess(imgName)
                 # Entering CNN guesses in chat every 2s
                 if (playerTurn and 60-counter > 15 and (counter % 60 - 15) % 2 == 0):
-                    enteredText = ai_guesses.popitem()[0]
+                    guess = ai_guesses.popitem()
+                    enteredText = guess[0]
+                    # Adding points based on how quick the guess was and how good the drawing is
+                    if (enteredText == targetWord and not correct):
+                        correct = True
+                        aiPoints += ceil(counter / 12)
+                        if (guess[1] <= 1):
+                            aiPoints += 2
+                        elif (guess[1] <= 25):
+                            aiPoints += 1
+                        elif (guess[1] >= 50):
+                            playerPoints += 1
+                        elif (guess[1] >= 90):
+                            playerPoints += 2   
                 # GAN drawing image every 6s
                 if (not playerTurn and (counter % 6) == 0):
                     idx = round((60-counter) / 6)
@@ -633,8 +651,9 @@ while True:
                     pygame.display.flip()
             # Switching between player/ai turns when timer hits 0 and incrementing rounds
             elif ((counter <= 0) and not(roundNum == 3 and not playerTurn)):
-                ai_guesses = {}
                 playerTurn = not playerTurn
+                correct = False
+                ai_guesses = {}
                 if (playerTurn == True):
                     timerText = f"Player's Turn!\nAI Drawn Word: {targetWord}"
                     save(f"{time.strftime('%Y-%m-%d_%H-%M-%S', time.localtime())}_round_{roundNum}_ai_drawing", "ai")
@@ -650,11 +669,16 @@ while True:
                 pygame.display.flip()
                 time.sleep(3)
                 counter = roundTime + 3
-            # Game finished after round 3
-            # TODO: show points per round, total points for each team, and the winner
+            # Game Over screen with total points and winner
             else:
                 gameOver = True
-                timerText = "Game Over!"
+                if (aiPoints > playerPoints):
+                    winner = "AI Wins!"
+                elif (playerPoints > aiPoints):
+                    winner = "Player Wins!"
+                else:
+                    winner = "Tie Game!"
+                timerText = f"Game Over!\n\nAI's Score: {aiPoints}\nPlayer's Score: {playerPoints}\n\n{winner}"
                 screen.blit(timerFont.render(timerText, True, (0, 0, 0)), (32, 48))
                 pygame.display.flip()
                 tempDelete(roundNum)
@@ -678,18 +702,34 @@ while True:
                 brushSize,
             )
         
-        # Displaying Player's word when drawing
+        # Displaying Target Words and Points
         if (playerTurn):
+            # Displaying Player's word when drawing
             targetWord = player_categories[roundNum]
-            screen.blit(hintFont.render(targetWord, True, (0, 0, 0)), (1210, 35))
+            if (correct):
+                screen.blit(hintFont.render(targetWord, True, (50,205,50)), (1210, 35))
+            else:
+                screen.blit(hintFont.render(targetWord, True, (0,0,0)), (1210, 35))
         else:
+            # Displaying AI's word with hints when drawing
             targetWord = ai_categories[roundNum]
             secondsPerLetter = round(60 / (len(targetWord)/2))
             if (not hintSet):
                 wordHint = "_"*len(targetWord)
+                space_indices = [i for i, char in enumerate(targetWord) if char == " "]
+                for idx in space_indices:
+                    wordHint = wordHint[:idx] + " " + wordHint[idx+1:]
                 hintSet = True
-            longHint = wordHint.replace("", " ")[1:-1]
-            canvas.blit(hintFont.render(wordHint, True, (0, 0, 0)), (1210, 35))
+            # Calculating player points based on how quickly they guess
+            if (enteredText == targetWord and not correct):
+                correct = True
+                playerPoints += ceil(counter / 12)
+            if (correct):
+                screen.blit(hintFont.render(targetWord, True, (50,205,50)), (1210, 35))
+            else:
+                screen.blit(hintFont.render(f"{wordHint} ({len(wordHint)})", True, (0, 0, 0)), (1210, 35))
+        screen.blit(timerFont.render(f"Player's Points: {playerPoints}", True, (0, 0, 0)), (1210, 80))
+        screen.blit(timerFont.render(f"AI's Points: {aiPoints}", True, (0, 0, 0)), (1210, 110))
         
         # Text Input
         if (isTextInputActive):
