@@ -20,7 +20,6 @@ from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
 from math import ceil
 
-
 # Checking if TFlite model exists
 CNNmodelExists = False
 GANmodelExists = False
@@ -133,6 +132,8 @@ for roundNum, label in ai_categories.items():
 
 # Training GAN for each category
 for model_category in categories:
+    constantNoise = np.random.uniform(-1.0, 1.0, 
+                                        size=[10, 100])
     # Getting dataset for training GAN
     if (not GANmodelExists):
         # Loading images
@@ -309,9 +310,7 @@ for model_category in categories:
                     except FileExistsError:
                         pass
                     # Generate and plot some images for visualization and save others for later
-                    noise = np.random.uniform(-1.0, 1.0, 
-                                        size=[10, z_dim])
-                    gen_imgs = generator.predict(noise, verbose=0)
+                    gen_imgs = generator.predict(constantNoise, verbose=0)
                     for idx in range(4, 10):  
                         img_array = gen_imgs[idx, :, :, 0]  
                         img_array = (img_array * 255).astype(np.uint8)  
@@ -452,7 +451,9 @@ def imagePreprocessing(image):
         y_min, x_min = non_white_pixels.min(axis=0)
         y_max, x_max = non_white_pixels.max(axis=0)
     except:
-        # Return white image if no drawing
+        # Return white image if no drawing and +1 to aiPoints for player not drawing
+        global aiPoints
+        aiPoints += 1
         return Image.new('L', (CNN_image_size, CNN_image_size), color=255)    
     
     # Crop to bounding box
@@ -623,12 +624,12 @@ while True:
                         randIdx = random.choice(underscore_indices)
                         wordHint = wordHint[:randIdx] + targetWord[randIdx] + wordHint[randIdx+1:]
                 # CNN guessing player's image every 10s
-                if (playerTurn and 60-counter > 5 and (counter % 60 - 5) % 10 == 0):
+                if (playerTurn and 60-counter > 0 and (counter % 60) % 10 == 0):
                     imgName = f"{time.strftime('%Y-%m-%d_%H-%M-%S', time.localtime())}_round_{roundNum}_{60-counter}s_player_drawing"
                     save(imgName, "temp/player_temp")
                     CNNguess(imgName)
                 # Entering CNN guesses in chat every 2s
-                if (playerTurn and 60-counter > 15 and (counter % 60 - 15) % 2 == 0):
+                if (playerTurn and 60-counter > 10 and (counter % 60 - 10) % 2 == 0):
                     guess = ai_guesses.popitem()
                     enteredText = guess[0]
                     # Adding points based on how quick the guess was and how good the drawing is
